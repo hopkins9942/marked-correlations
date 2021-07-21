@@ -296,7 +296,7 @@ def getNode(idnum):
     return n
 
 #%%data
-with fits.open("/home/matthew/MPhys Project/Data/MatchedTable2.fits",
+with fits.open(r"D:\Data\marked-correlations\MatchedTable.fits",
                memmap=True) as hdul:
     nsa_table = hdul[1].data
     hdr = hdul[1].header
