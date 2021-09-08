@@ -1,0 +1,42 @@
+Needed aastex .sty file
+
+did with miktex graphical interface
+
+then got error message "Please update your system to include revtex4-1.cls"
+
+this is outdated package so 
+https://tex.stackexchange.com/questions/586368/please-update-your-system-to-include-revtex4-1-cls
+and I got off ctan and followed 
+https://tex.stackexchange.com/questions/2063/how-can-i-manually-install-a-package-on-miktex-windows
+and 
+https://miktex.org/faq/local-additions
+
+Ie created folder tree matth/localtexmf/tex/latex/revtex4-1
+added localtexmf as root in miktex console
+
+downloaded and unzipped revtex4-1 from https://www.ctan.org/pkg/revtex4-1
+in cmd ran "tex revtex4-1.dtx"
+then copied revtex4-1.cls to matth/localtexmf/tex/latex/revtex4-1 (as don't need full package)
+
+refreshed filename database in miktex console - tasks dropdown menu
+ it worked!
+
+Then I got error:
+"Class revtex4-1 Warning: No Society specified, using default society aps.
+
+
+! LaTeX Error: File `aps4-1.rtx' not found."
+
+Unsure why it used aps, but looking at where aastex361.cls uses revtex4-1.cls I think it's right. 
+aps4-1.rtx is in revtex package, so I'm guessing it all will be needed, not just revtex4-1.cls
+Looking at output from "tex revtex4-1.dtx", files created are 
+revtex4-1.cls 
+aps4-1.rtx 
+apsrmp4-1.rtx 
+aps10pt4-1.rtx 
+aps11pt4-1.rtx
+aps12pt4-1.rtx 
+revsymb4-1.sty 
+
+So I'll move these into localtexmf, refreshed filename database, and tried again
+It works! no errors/warnings seen (though I didn't look hard)
