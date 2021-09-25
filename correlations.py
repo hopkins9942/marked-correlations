@@ -61,7 +61,7 @@ How it should all work:
     Need way of splitting nodes into children.
     could just split one axis in half - which axis? how to take geometry into account?
     eg in my code splitting in r direction probably did little good
-    splitting should take user seperation function into account only!
+    splitting should take user separation function into account only!
     
     when two nodes considered, the min and max seperations are measured and compared 
     to maxsep. if max<maxsep, splitting does no good and slowbincount begins
@@ -71,7 +71,7 @@ How it should all work:
     Bear in mind that often the two nodes will be identical
     Should be by disecting one coordinate axis - anything fancier will take considerable time
     which coordinate? Goal is to create one child with a much larger min and a much smaller max
-    Could measure "width" of node in each coordinate by user-seperation of midpoints of each pair of faces
+    Could measure "width" of node in each coordinate by user-separation of midpoints of each pair of faces
     this would produce splits in r if extent of cell exceeded rmax
     
     Plan for now: put in global maximiser as default,
@@ -80,24 +80,57 @@ How it should all work:
     sort splitting as described above
     consider how to implement diffpimax and others like it
     
+    Plan as of 19/09, after break:
+        local minimiser with roughly square cells will probably be fine
+        as long as it doesn't get stuck on perpendicular walls (use relevant method) DONE
+        Measure width of cells with user separation between midpoints of faces, DONE
+        then split along largest width direction by half by coordinate DONE
+        I think this implemented will be end!
+    
+    
+    With regard to lists and tuples, following convention of 
+    https://stackoverflow.com/questions/626759/whats-the-difference-between-lists-and-tuples
+    noting especially that although they CAN be used similarly (python is for
+    consenting adults) there is a difference in how they SHOULD be used to
+    match the conventions of the community and keep understandable code.
+    
+    Thoughts 25/09/21 while considering random scrambling.
+    Most conventional way of doing this would be to define a function to be
+    used, rather than changing functions and variables inside module from outside.
+    this partially solves seperation issue - have cartesian, polar options and
+    option to define own function. Passing big arrays is fine, it occurs by reference.
+    DOING THIS NOW
 """
 
 import numpy as np
 import datetime
 from scipy import optimize
 
-coordinateArray = []
-markArray = []
+coordinateArray = np.array([]) # must be defined by user
+markArray = np.array([])
 
+def separation(coords1, coords2):
+    """
+    Customisable, currently set to Peebles rp for testing
+    coords is (dist,dec,ra)
+    #TODO change to euclidian default #TODO add in inf when out of pi range
+    #TODO can't use inf as for minimiser function must be increasing, maybe use step and increase
+    """
+    # distSum = coords1[0]+coords2[0]
+    # dec1 = coords1[1]
+    # dec2 = coords2[1]
+    # raDiff = coords1[2]-coords2[2]#order irrelevant as only in sin**2
+    
+    # arg = np.sin((dec1-dec2)/2)**2 + np.cos(dec1)*np.cos(dec2)*np.sin(raDiff/2)**2
+    # sep = (distSum)*np.sqrt(arg/(1-arg))
+    
+    temp=0
+    for i in range(coordinateArray.shape[1]):
+        temp+=(coords1[i]-coords2[i])**2
+    sep = np.sqrt(temp)
+    
+    return sep
 
-class _testnode:
-    """used to test min and max functions"""
-    def __init__(self,bounds):
-        self.bounds = bounds
-        dist_split = ((self.bounds[0][1]**3 + self.bounds[0][0]**3)/2)**(1/3)
-        dec_split = np.arcsin((np.sin(self.bounds[1][1]) + np.sin(self.bounds[1][0]))/2)
-        ra_split = (self.bounds[2][1] + self.bounds[2][0])/2
-        self.splitTuple = (dist_split, dec_split, ra_split)
 
 class Node:
     
@@ -108,103 +141,53 @@ class Node:
         self.nodeIndices = nodeIndices
         self.idnum = idnum
         
-        self.bounds = [(min(coordinateArray[nodeIndices, i]), max(coordinateArray[nodeIndices, i])) for i in range(coordinateArray.shape[1])]
+        self.bounds = tuple((min(coordinateArray[nodeIndices, i]), max(coordinateArray[nodeIndices, i])) for i in range(coordinateArray.shape[1]))
         
-        self.midList = [(self.bounds[i][0]+self.bounds[i][1])/2 for i in range(coordinateArray.shape[1])]
+        self.midpoints = tuple((self.bounds[i][0]+self.bounds[i][1])/2 for i in range(coordinateArray.shape[1]))
         
-        self.sizeTuple = tuple(separation(
-                                     (self.bounds[j][0] if j==i
-                                      else self.midTuple[j]
+        self.widths = tuple(separation(
+                                     tuple(self.bounds[j][0] if j==i else self.midpoints[j]
                                       for j in range(coordinateArray.shape[1])),
-                                     (self.bounds[j][1] if j==i
-                                      else self.midTuple[j]
+                                     tuple(self.bounds[j][1] if j==i else self.midpoints[j]
                                       for j in range(coordinateArray.shape[1]))
-                                     ) for i in range(coordinateArray.shape[1]))#TODO test
-        print(self.sizeTuple)
+                                     ) for i in range(coordinateArray.shape[1]))
+        #self.widths[i] is separation between points on midpoints of faces corresponding to min and max in coordinate number i
+
         self.numPoints = np.count_nonzero(self.nodeIndices)
         
-        if (np.max(self.sizeTuple)<=self.leafMinSize)or(self.numPoints<=self.leafMinPoints):
-            self.isLeaf=True
+    @property
+    def isLeaf(self): # done as property in case leafMinPoints etc is changed
+        if (np.max(self.widths)<=self.leafMinSize)or(self.numPoints<=self.leafMinPoints):
+            return True
         else:
-            self.isLeaf=False
+            return False
             
     def leftChild(self):
         if self.isLeaf:
             return None
         else:                
-            maxSizeIndex = np.argmax(self.sizeTuple)
-            leftIndices = np.logical_and(coordinateArray[:, maxSizeIndex] < self.splitTuple[maxSizeIndex], self.nodeIndices)
+            maxSizeIndex = np.argmax(self.widths)
+            leftIndices = np.logical_and(coordinateArray[:, maxSizeIndex] < self.midpoints[maxSizeIndex], self.nodeIndices)
             return Node(leftIndices, 2*self.idnum+1)
         
     def rightChild(self):
         if self.isLeaf:
             return None
         else:
-            maxSizeIndex = np.argmax(self.sizeTuple)
-            rightIndices = np.logical_and(coordinateArray[:, maxSizeIndex] >= self.splitTuple[maxSizeIndex], self.nodeIndices)
+            maxSizeIndex = np.argmax(self.widths)
+            rightIndices = np.logical_and(coordinateArray[:, maxSizeIndex] >= self.midpoints[maxSizeIndex], self.nodeIndices)
             return Node(rightIndices, 2*self.idnum+2)
         
 
-def separation(coords1, coords2):
-    """
-    Customisable, currently set to Peebles rp for testing
-    coords is (dist,dec,ra)
-    #TODO change to euclidian default #TODO add in inf when out of pi range
-    #TODO can't use inf as for minimiser function must be increasing, maybe use step and increase
-    """
-    distSum = coords1[0]+coords2[0]
-    dec1 = coords1[1]
-    dec2 = coords2[1]
-    raDiff = coords1[2]-coords2[2]#order irrelevant as only in sin**2
-    
-    arg = np.sin((dec1-dec2)/2)**2 + np.cos(dec1)*np.cos(dec2)*np.sin(raDiff/2)**2
-    return (distSum)*np.sqrt(arg/(1-arg))
+class _testnode:
+    """used to test min and max functions"""
+    def __init__(self,bounds):
+        self.bounds = bounds
+        dist_split = ((self.bounds[0][1]**3 + self.bounds[0][0]**3)/2)**(1/3)
+        dec_split = np.arcsin((np.sin(self.bounds[1][1]) + np.sin(self.bounds[1][0]))/2)
+        ra_split = (self.bounds[2][1] + self.bounds[2][0])/2
+        self.midpoints = (dist_split, dec_split, ra_split)
 
-# def minrp(node1,node2):
-#     "gives minimum rp distance between node1 and node2 (tested)"
-#     # rp minimised by choosing lowest radial distance faces of nodes, then finding minimum angle between faces
-#     decDiff =              0.5*(abs(node1.bounds[1,1]+node1.bounds[1,0]-node2.bounds[1,1]-node2.bounds[1,0])
-#                                  - (node1.bounds[1,1]-node1.bounds[1,0]+node2.bounds[1,1]-node2.bounds[1,0]))
-
-#     raDiff  = min(          0.5*abs(node1.bounds[2,1]+node1.bounds[2,0]-node2.bounds[2,1]-node2.bounds[2,0]),
-#                   2*np.pi - 0.5*abs(node1.bounds[2,1]+node1.bounds[2,0]-node2.bounds[2,1]-node2.bounds[2,0])
-#                   )        -0.5  * (node1.bounds[2,1]-node1.bounds[2,0]+node2.bounds[2,1]-node2.bounds[2,0])
-    
-#     if decDiff<=0:
-#         if raDiff<=0:
-#             #overlap in both,
-#             return 0
-#         else:
-#             # ie overlap in dec, min distis given by dist between points at nearest radial distance, with most extreme dec in dec overlap
-#             absdec = max(abs(np.sort([node1.bounds[1,0], node1.bounds[1,1], node2.bounds[1,0], node2.bounds[1,1]])[1:3]))
-#             #sort means middle two ([1:3]) give ends of overlap, max(abs()) gives most extreme. this gives absolute value of dec of nearest points, but this changes nothing in rp
-#             return rp(node1.bounds[0,0]+node2.bounds[0,0],raDiff, absdec, absdec)
-#     else:
-#         decToUse = np.sort([node1.bounds[1,0], node1.bounds[1,1], node2.bounds[1,0], node2.bounds[1,1]])[1:3]
-#         #definitly no overlap in dec means middle 2 decs are nearesr edges, order irrrelevant
-#         if raDiff<=0:
-#             #overlap in ra only
-            
-#             return rp(node1.bounds[0,0]+node2.bounds[0,0], 0, decToUse[0], decToUse[1])
-#         else:
-#             # no overlaps
-#             return rp(node1.bounds[0,0]+node2.bounds[0,0], raDiff, decToUse[0], decToUse[1])
-        
-# def maxrp(node1,node2):
-#     "gives max rp distance between node1 and node2"
-#     # rp minimised by choosing lowest radial distance faces of nodes, then finding minimum angle between faces
-#     cornerDists = [rp(node1.bounds[0,1]+node2.bounds[0,1], node1.bounds[2,0]-node2.bounds[2,1], node1.bounds[1,0], node2.bounds[1,1]),
-#                    rp(node1.bounds[0,1]+node2.bounds[0,1], node1.bounds[2,0]-node2.bounds[2,1], node1.bounds[1,1], node2.bounds[1,0]),
-#                    rp(node1.bounds[0,1]+node2.bounds[0,1], node1.bounds[2,1]-node2.bounds[2,0], node1.bounds[1,0], node2.bounds[1,1]),
-#                    rp(node1.bounds[0,1]+node2.bounds[0,1], node1.bounds[2,1]-node2.bounds[2,0], node1.bounds[1,1], node2.bounds[1,0]),
-#                    ]
-#     return max(cornerDists)
-
-# def minpidiff(node1, node2):
-#     return 0.5*(abs(node1.bounds[0,1]+node1.bounds[0,0]-node2.bounds[0,1]-node2.bounds[0,0])
-#                                  - (node1.bounds[0,1]-node1.bounds[0,0]+node2.bounds[0,1]-node2.bounds[0,0]))
-# def maxpidiff(node1,node2):
-#     return max(abs(node1.bounds[0,0]-node2.bounds[0,1]), abs(node1.bounds[0,1]-node2.bounds[0,0]))
 
 def _minmaxsep_local(node1, node2, mode):
     """Returns coordinates of min/max (mode dependant) separations between nodes
@@ -221,7 +204,7 @@ def _minmaxsep_local(node1, node2, mode):
         func = lambda coords:    separation(coords[:coords.size//2], coords[coords.size//2:])
     elif mode==1: # finding maximum separation
         func = lambda coords: -1*separation(coords[:coords.size//2], coords[coords.size//2:])
-    res = optimize.minimize(func, np.asarray(node1.splitTuple+node2.splitTuple),
+    res = optimize.minimize(func, np.asarray(node1.midpoints+node2.midpoints),
                             method = 'Nelder-Mead',
                             bounds=bounds)
     return res#.x #TODO decide what to output
@@ -230,8 +213,10 @@ def _minmaxsep_local(node1, node2, mode):
 
 def _minmaxsep_global(node1, node2, mode):
     """uses global minimiser
-    
+    .
     Testing with shgo
+    
+    unused
     """
     bounds = node1.bounds + node2.bounds # concatenates bounds into single tuple
     if mode==0: # finding minimum separation
@@ -245,12 +230,12 @@ def _minmaxsep_global(node1, node2, mode):
     
 def minSep(node1, node2):
     """Finds maximum separation between nodes"""
-    coords = _minmaxsep_global(node1, node2, 0)
+    coords = _minmaxsep_local(node1, node2, 0).x
     return separation(coords[:coords.size//2], coords[coords.size//2:])
     
 def maxSep(node1, node2):
     """Finds minimum separation between nodes"""
-    coords = _minmaxsep_global(node1, node2, 1)
+    coords = _minmaxsep_local(node1, node2, 1).x
     return separation(coords[:coords.size//2], coords[coords.size//2:])
     
                 
@@ -263,30 +248,32 @@ def SlowBinCount(node1,node2, binEdges, marks2cross):
     """
     #global globalcount
     
-    count = np.zeros((2*Nmarks+len(marks2cross), len(binEdges)-1, 2))
+    count = np.zeros((2*markArray.shape[1]+len(marks2cross), len(binEdges)-1, 2))
     if node1.idnum!=node2.idnum:
-        for i in np.arange(Ngalaxies)[node1.nodeIndices]:
-            for j in np.arange(Ngalaxies)[node2.nodeIndices]:
-                if (abs(distArray[i]-distArray[j])<max_pi):
-                    temp_rp = rp(distArray[i]+distArray[j], raArray[i]-raArray[j], decArray[i], decArray[j])
-                    for k in range(len(binEdges)-1):
-                        if (temp_rp<binEdges[k+1]):
-                            for l in range(0,Nmarks):
-                                count[l,k,0] += markArray[i,l]*markArray[j,l]
-                                count[l,k,1] += (markArray[scrambleIndices[i,l,:],l]*markArray[scrambleIndices[j,l,:],l]).mean()
-                                count[Nmarks+l,k,0] += (markArray[i,l]*markArray[j,l])**2
-                                count[Nmarks+l,k,1] += ((markArray[scrambleIndices[i,l,:],l]*markArray[scrambleIndices[j,l,:],l])**2).mean()
-                            for l in range(len(marks2cross)):
-                                count[(2*Nmarks + l), k, 0] += (markArray[i,marks2cross[l][0]]
-                                                                *markArray[j,marks2cross[l][0]]
-                                                                *markArray[i,marks2cross[l][1]]
-                                                                *markArray[j,marks2cross[l][1]])
-                                count[(2*Nmarks + l), k, 1] += (markArray[scrambleIndices[i,marks2cross[l][0],:],marks2cross[l][0]]
-                                                                *markArray[scrambleIndices[j,marks2cross[l][0],:],marks2cross[l][0]]
-                                                                *markArray[scrambleIndices[i,marks2cross[l][1],:],marks2cross[l][1]]
-                                                                *markArray[scrambleIndices[j,marks2cross[l][1],:],marks2cross[l][1]]).mean()
-                            
-                            break
+        for i in np.arange(coordinateArray.shape[0])[node1.nodeIndices]:
+            for j in np.arange(coordinateArray.shape[0])[node2.nodeIndices]:
+                
+                
+                temp_sep = separation(coordinateArray[i,:],coordinateArray[j,:])
+                for k in range(len(binEdges)-1):
+                    if (temp_sep<binEdges[k+1]):
+                        for l in range(0,markArray.shape[1]):
+                            count[l,k,0] += markArray[i,l]*markArray[j,l]
+                            #TODO got to here, need tot work out hw to scramble. Think I need scrambleindices as global
+                            count[l,k,1] += (markArray[scrambleIndices[i,l,:],l]*markArray[scrambleIndices[j,l,:],l]).mean()
+                            count[Nmarks+l,k,0] += (markArray[i,l]*markArray[j,l])**2
+                            count[Nmarks+l,k,1] += ((markArray[scrambleIndices[i,l,:],l]*markArray[scrambleIndices[j,l,:],l])**2).mean()
+                        for l in range(len(marks2cross)):
+                            count[(2*Nmarks + l), k, 0] += (markArray[i,marks2cross[l][0]]
+                                                            *markArray[j,marks2cross[l][0]]
+                                                            *markArray[i,marks2cross[l][1]]
+                                                            *markArray[j,marks2cross[l][1]])
+                            count[(2*Nmarks + l), k, 1] += (markArray[scrambleIndices[i,marks2cross[l][0],:],marks2cross[l][0]]
+                                                            *markArray[scrambleIndices[j,marks2cross[l][0],:],marks2cross[l][0]]
+                                                            *markArray[scrambleIndices[i,marks2cross[l][1],:],marks2cross[l][1]]
+                                                            *markArray[scrambleIndices[j,marks2cross[l][1],:],marks2cross[l][1]]).mean()
+                        
+                        break
     else:
         for i in np.arange(Ngalaxies)[node1.nodeIndices][1:]:
             for j in np.arange(i)[node1.nodeIndices[:i]]:
@@ -343,6 +330,9 @@ def DualTreeBinCount(node1,node2, binEdges, marks2cross):
     Returns array of sums of weighted pair counts with entry for each mark plus two, like markArray plus cross correlations
     Splits and prunes nodes, then feeds nearby nodes into SlowBinCount to calculate sums
     """
+    
+    # PUT RNG HERE
+    
     if (node1.idnum==node2.idnum)and(2**8-1<=node1.idnum<2**9-1):
         print(node1.idnum-2**8+1, datetime.datetime.now())#print(np.log2(1+node1.idnum), datetime.datetime.now())
     if (minrp(node1,node2)>binEdges[-1])or(minpidiff(node1,node2)>max_pi):
