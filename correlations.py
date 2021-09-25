@@ -100,14 +100,57 @@ How it should all work:
     this partially solves seperation issue - have cartesian, polar options and
     option to define own function. Passing big arrays is fine, it occurs by reference.
     DOING THIS NOW
+    Plan:
+        Big function called either "DualTree<something>"
+        - not generic name in case I add other algorithms
+        Takes input of marks, positions, seperation function option/def, marks2cross
+        Additional options (possibly as arguments with default values or editable
+                            with crrl.minLeafPoints=10 etc):
+            leaf parameters
+        
+    Should function just output sums, or output exactly what can be plotted?
+    Means are easily calculable, so user could change easily
+    Output MCF as more useable?
+    Output sums because crosscorrelations may be less simple?
+    
+    Solution: have DualTreeBinnedCount to perform algorithm basically,
+    Then have a calling function which sets up nodes, calls DTBC on double base node,
+    then divides by means to produce graphables
+    
+    PROBLEM: WHEN TESTING MIN AND MAX SEPERATION,
+    FORGOT TO TEST WHEN CALLED ON SAME NODE
+    
+    To do - test maxsep on same node
+    - write from top down calling function, then DualTreeBinnedCount, then slow bin count, etc
 """
 
 import numpy as np
 import datetime
 from scipy import optimize
 
-coordinateArray = np.array([]) # must be defined by user
-markArray = np.array([])
+def DualTreeBinnedCount():
+    """
+    Calculates ...
+    Inputs ...
+    
+    Uses modified version of DualTreeCount algorithm in Moore et al. 2001.
+    Reason for modification is in motivating case typical size of leaf cells 
+    was larger than bin sizes, meaning negligibly few cells would lie entirely
+    within s_lo and s_hi of each other. Solution was to use dual tree approach
+    to efficiently exclude groups of points with minimum seperation greater
+    than maximum seperation investigated, then perform slow per-pair counts 
+    on what remained.
+    Resulting algorithm is thus:
+        Measure maximum and minumum distances between nodes.
+        If min exceeds maximum seperation investigated, no pairs therfore return zero
+        ElseIf max is less than maximum seperation investigated, every point in n1 pairs with every point in n2
+        so perform slow bin count
+        ElseIf both nodes are leafs then slow bin count
+        Elseif nodes are distict, split largest aliong longest axis and return 
+        sum of DTBC on (child1, other node) and (child2, other node) 
+        else (if same node, non-leaf) split along longest axis and return
+        DTBC(child1,child1) + DTBC(child1,child2) + DTBC(child2,child2)
+    """
 
 def separation(coords1, coords2):
     """
@@ -125,7 +168,7 @@ def separation(coords1, coords2):
     # sep = (distSum)*np.sqrt(arg/(1-arg))
     
     temp=0
-    for i in range(coordinateArray.shape[1]):
+    for i in range(coords1.size):
         temp+=(coords1[i]-coords2[i])**2
     sep = np.sqrt(temp)
     
